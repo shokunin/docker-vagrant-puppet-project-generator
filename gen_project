@@ -1,0 +1,438 @@
+#!/usr/bin/env ruby
+
+require 'fileutils'
+require 'erb'
+require 'getoptlong'
+
+########################################################
+#  Collect args
+args = {
+    :project_name        => '',
+    :docker_host         => '',
+    :docker_org          => '',
+    :docker_source_image => '',
+    :vagrant_source_url  => 'https://cloud-images.ubuntu.com/xenial/current/xenial-server-cloudimg-amd64-vagrant.box',
+    :vagrant_box         => 'ubuntu/xenial64',
+    :ruby_version        => 'ruby-2.3.1',
+    :terraform_version   => '0.7.7',
+    :ruby_gemset         => 'docker-packer',
+}
+
+opts = GetoptLong.new(
+  [ '--project', '-p', GetoptLong::OPTIONAL_ARGUMENT ],
+  [ '--docker-host', '-d', GetoptLong::OPTIONAL_ARGUMENT ],
+  [ '--docker-org', '-o', GetoptLong::OPTIONAL_ARGUMENT ],
+  [ '--docker-source-image', '-s', GetoptLong::OPTIONAL_ARGUMENT ],
+  [ '--vagrant-source-url', '-S', GetoptLong::OPTIONAL_ARGUMENT ],
+  [ '--vagrant-box', '-b', GetoptLong::OPTIONAL_ARGUMENT ],
+  [ '--terraform-version', '-t', GetoptLong::OPTIONAL_ARGUMENT ],
+  [ '--ruby-version', '-r', GetoptLong::OPTIONAL_ARGUMENT ],
+  [ '--ruby-gemset', '-g', GetoptLong::OPTIONAL_ARGUMENT ],
+)
+
+opts.each do |opt, arg|
+  case opt
+    when '--project'
+      args[:project_name] = arg
+    when '--docker-host'
+      args[:docker_host] = arg
+    when '--docker-org'
+      args[:docker_org] = arg
+    when '--docker-source-image'
+      args[:docker_source_image] = arg
+    when '--vagrant-source-url'
+      args[:vagrant_source_url] = arg
+    when '--vagrant-box'
+      args[:vagrant_box] = arg
+    when '--terraform-version'
+      args[:terraform_version] = arg
+    when '--ruby-version'
+      args[:ruby_version] = arg
+    when '--ruby-gemset'
+      args[:ruby_gemset] = arg
+  end
+end
+
+if args[:project_name] == '' or args[:docker_org] == '' or args[:docker_source_image] == '' or args[:docker_host] == ''
+  puts "Error you need to set args"
+  exit! 1
+end
+
+########################################################
+# Create the directories
+[ 'puppet/ext/hieradata', 'terraform-local', 'terraform_modules/local', 'tasks' ].each do |mydir|
+  FileUtils.mkdir_p("#{args[:project_name]}/#{mydir}")
+end
+
+########################################################
+# Create the readme file
+readme_template = ERB.new <<-EOF
+<%= args[:project_name] %> <% underline = ''%><% (1..args[:project_name].length).each {|i| underline += '='} %>
+<%= underline %>
+
+Prerequisites
+=============
+
+1. Install [packer](https://packer.io/)
+2. Install [rvm](http://rvm.io/)
+3. Install [bundler](http://bundler.io/)
+4. Install [tfenv](https://github.com/kamatama41/tfenv)
+
+
+Setting up
+==========
+
+Install all ofthe prerequisites above and run bundler
+
+If you have a previous installation of terraform, you will need to remove it
+
+```
+tfenv install `cat .terraform-version`
+bundle install
+```
+
+
+Building
+========
+
+Containers are generally built by Jenkins, so application developers not trying
+to modify the containers, may skip this step
+
+```
+rake
+```
+
+Running
+=======
+
+This will run up a docker container with filesystem mounts for testing
+
+```
+cd terraform-local 
+terraform get -update
+terraform apply 
+```
+
+
+Info
+====
+
+This project was generated with the command:
+
+```
+./gen_project --project <%= args[:project_name] %>  --docker-host <%= args[:docker_host] %> \\
+              --docker-org <%= args[:docker_org] %> --docker-source-image <%= args[:docker_source_image] %> \\
+              --ruby-version <%= args[:ruby_version] %> --terraform-version <%= args[:terraform_version] %> \\
+              --ruby-gemset <%= args[:ruby_gemset] %>  --vagrant-box <%= args[:vagrant_box] %> \\
+              --vagrant-source-url <%= args[:vagrant_source_url] %>
+```
+EOF
+readme=File.open("#{args[:project_name]}/Readme.md", 'w')
+readme.puts readme_template.result(binding)
+readme.close
+
+########################################################
+# Create the gitignore file
+git= <<-EOF
+Gem*.lock
+.rvmrc
+Dockerfile
+rvm.env
+set-env.sh
+puppet/modules
+terraform*/terraform.tfstate
+terraform*/terraform.tfstate.backup
+terraform*/.terraform
+.vagrant/
+*-console.log
+
+EOF
+gitignore=File.open("#{args[:project_name]}/.gitignore", 'w')
+gitignore.puts git
+gitignore.close
+
+########################################################
+# Create the site.pp file
+site= <<-EOF
+hiera_include('classes')
+
+EOF
+sitefile=File.open("#{args[:project_name]}/puppet/site.pp", 'w')
+sitefile.puts site
+sitefile.close
+
+########################################################
+# Create the rubysetups
+rubyfile=File.open("#{args[:project_name]}/.ruby-version", 'w')
+rubyfile.puts args[:ruby_version]
+rubyfile.close
+rubyfile=File.open("#{args[:project_name]}/.ruby-gemset", 'w')
+rubyfile.puts args[:ruby_gemset]
+rubyfile.close
+terraformfile=File.open("#{args[:project_name]}/.terraform-version", 'w')
+terraformfile.puts args[:terraform_version]
+terraformfile.close
+
+########################################################
+# Create the hiera.yaml file
+hiera= <<-EOF
+---
+:backends:
+  - yaml
+:yaml:
+  :datadir: /tmp/hieradata
+:hierarchy:
+  - common
+
+EOF
+hierafile=File.open("#{args[:project_name]}/puppet/ext/hiera.yaml", 'w')
+hierafile.puts hiera
+hierafile.close
+
+########################################################
+# Create the common.yaml file
+common= <<-EOF
+---
+classes:
+  - apt
+  - ubuntu_pkgs
+
+ubuntu_pkgs:
+  - git
+
+EOF
+commonfile=File.open("#{args[:project_name]}/puppet/ext/hieradata/common.yaml", 'w')
+commonfile.puts common
+commonfile.close
+
+########################################################
+# Create the Puppetfile file
+puppet= <<-EOF
+mod 'stdlib',
+  :git => 'https://github.com/puppetlabs/puppetlabs-stdlib.git',
+  :ref => 'master'
+
+mod 'apt',
+  :git => 'https://github.com/puppetlabs/puppetlabs-apt.git',
+  :ref => 'master'
+
+mod 'ubuntu_pkgs',
+  :git => 'https://github.com/shokunin/ubuntu_pkgs.git',
+  :ref => 'master'
+
+EOF
+puppetfile=File.open("#{args[:project_name]}/puppet/Puppetfile", 'w')
+puppetfile.puts puppet
+puppetfile.close
+
+
+
+########################################################
+# Create the gitignore file
+gem= <<-EOF
+source "http://rubygems.org"
+
+gem "r10k" 
+gem "rake" 
+gem "popen4"
+
+EOF
+gemfile=File.open("#{args[:project_name]}/Gemfile", 'w')
+gemfile.puts gem
+gemfile.close
+
+
+########################################################
+# Create the readme file
+vagrantfile_template = ERB.new <<-EOF
+Vagrant.configure("2") do |config|
+
+  config.vm.box = "<%= args[:vagrant_box] %>"
+  config.vm.box_url = "<%= args[:vagrant_source_url] %>"
+
+  config.vm.synced_folder "puppet/modules", "/tmp/vagrant-puppet/puppet/modules"
+  config.vm.synced_folder "puppet/ext/hieradata", "/tmp/hieradata"
+
+  config.vm.provision "shell" do |s|
+    s.inline = "/usr/bin/apt-get update && /usr/bin/apt-get install -y python puppet python-pip && /usr/bin/gem install deep_merge --no-ri --no-rdoc"
+  end
+
+  config.vm.provision :puppet do |puppet|
+    puppet.hiera_config_path = "puppet/ext/hiera.yaml"
+    puppet.manifests_path    = "puppet"
+    puppet.options           = ["--modulepath", "/tmp/vagrant-puppet/puppet/modules", "--parser", "future"]
+    puppet.manifest_file     = "site.pp"
+  end
+end
+
+EOF
+vagrantfile=File.open("#{args[:project_name]}/Vagrantfile", 'w')
+vagrantfile.puts vagrantfile_template.result(binding)
+vagrantfile.close
+
+
+########################################################
+# Create the rake file
+rakefile_template = ERB.new <<-EOF
+require 'psych'
+require 'popen4'
+STDOUT.sync = true
+
+Dir.glob('tasks/*.rake').each { |r| import r }
+
+dtr_host       = '<%= args[:docker_host]%>'
+dtr_org        = '<%= args[:docker_org]%>'
+container_name = '<%= args[:project_name]%>'
+
+task :default => 'base_docker:build_docker'
+##########################################################################
+def run_command(cmd)
+  cmdrun = IO.popen(cmd)
+  output = cmdrun.read
+  cmdrun.close
+  if $?.to_i > 0
+    puts "count not run \#{cmd}, it returned an error \#{output}"
+    exit 2
+  end
+  puts "OK: ran command \#{cmd}"
+end
+
+desc 'Ensure environment is setup properly'
+task :check_env do
+  ['CONTAINER_BUILD_NUMBER', 'RUN_ENV'].each do |st|
+    unless ENV.has_key? st
+      puts "ENV var \#{st} is not set - see the Readme"
+      exit 1
+    end
+  end
+end
+
+EOF
+rakefile=File.open("#{args[:project_name]}/Rakefile", 'w')
+rakefile.puts rakefile_template.result(binding)
+rakefile.close
+
+
+########################################################
+# Create the shared rake file
+rakefile_template = ERB.new <<-EOF
+##########################################################################
+desc 'Update Puppet Modules'
+task :update_puppet do
+  desc 'Update the puppet modules in r10k'
+  puts 'Rake: updating puppet modules'
+  run_command('cd puppet && rm -rf modules && r10k puppetfile install')
+end
+
+EOF
+rakefile=File.open("#{args[:project_name]}/tasks/shared.rake", 'w')
+rakefile.puts rakefile_template.result(binding)
+rakefile.close
+
+
+########################################################
+# Create the rake file
+dockerrake_template = ERB.new <<-EOF
+##########################################################################
+namespace :base_docker do
+  hf = Dir.glob('puppet/ext/data/*.yaml')
+  errors = []
+  task :lint_hiera do
+    hf.each do |hiera_file|
+      begin
+        Psych.load_file(hiera_file)
+      rescue Exception => e
+        errors << e.message
+      end
+    end
+    if errors.empty?
+      puts "Rake: \#{hf.length} hiera files all checkout!"
+    else
+      errors.each do |err|
+        puts "ERROR: YAML parse errors"
+        puts err
+      end
+      exit 1
+    end
+  end
+
+  task :run_packer do
+    puts 'Rake: Building container'
+    POpen4::popen4( "packer build packer.json" ) do |stdout, stderr, stdin|  
+      stdout.each do |line|  
+        puts line  
+      end
+    end  
+  end
+
+  task :upload_container do
+    puts 'Rake: uploading container'
+    run_command("docker tag -f \#{dtr_host}/\#{dtr_org}/\#{container_name} \#{dtr_host}/\#{dtr_org}/\#{container_name}:latest")
+    run_command("docker push \#{dtr_host}/\#{dtr_org}/\#{container_name}:latest")
+  end
+
+  task :build_docker => [:update_puppet, :lint_hiera, :run_packer] do
+    puts 'Rake: Building the docker container'
+  end
+
+  desc 'Build and Upload docker base container'
+  task :build_docker_full => [:update_puppet, :lint_hiera, :run_packer, :upload_container] do
+    puts 'Rake: Building and uploading the docker container'
+  end
+
+end
+
+EOF
+dockerrake=File.open("#{args[:project_name]}/tasks/docker.rake", 'w')
+dockerrake.puts dockerrake_template.result(binding)
+dockerrake.close
+
+
+########################################################
+# Create the packer file
+packerfile_template = ERB.new <<-EOF
+{
+  "variables": {
+    "build": "BUILD"
+  },
+  "provisioners": [
+    {
+      "type"   : "shell",
+      "inline" : [
+        "apt-get update",
+        "mkdir -p /tmp/hieradata"
+      ]
+    },
+    {
+      "type"        : "file",
+      "source"      : "puppet/ext/hieradata",
+      "destination" : "/tmp"
+    },
+    {
+      "type"              : "puppet-masterless",
+      "manifest_file"     : "./puppet/site.pp",
+      "module_paths"      : "./puppet/modules",
+      "hiera_config_path" : "./puppet/ext/hiera.yaml",
+      "execute_command"   : "{{.FacterVars}}  puppet apply  --verbose --debug --parser future --modulepath='{{.ModulePath}}'  --hiera_config='{{.HieraConfigPath}}' --detailed-exitcodes  {{.ManifestFile}}"
+    }
+  ],
+  "builders": [
+    {
+      "type"        : "docker",
+      "image"       : "<%= args[:docker_source_image] %>",
+      "export_path" : "img.tar"
+    }
+  ],
+  "post-processors": [
+    [{
+      "type"       : "docker-import",
+      "repository" : "<%= args[:docker_host] %>/<%= args[:docker_org] %>/<%= args[:project_name] %>",
+      "tag"        : "latest"
+     }]
+  ]
+}
+
+EOF
+packerfile=File.open("#{args[:project_name]}/packer.json", 'w')
+packerfile.puts packerfile_template.result(binding)
+packerfile.close
