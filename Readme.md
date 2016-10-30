@@ -14,3 +14,5 @@ example setup:
               --ruby-gemset docker-packer  --vagrant-box ubuntu/xenial64 \
               --vagrant-source-url https://cloud-images.ubuntu.com/xenial/current/xenial-server-cloudimg-amd64-vagrant.box
 ```
+
+The project Readme.md file that will explain how to build and use the container
