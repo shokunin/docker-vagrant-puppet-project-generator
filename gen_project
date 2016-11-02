@@ -280,9 +280,11 @@ STDOUT.sync = true
 
 Dir.glob('tasks/*.rake').each { |r| import r }
 
-dtr_host       = '<%= args[:docker_host]%>'
-dtr_org        = '<%= args[:docker_org]%>'
-container_name = '<%= args[:project_name]%>'
+task :settings do
+  @dtr_host       = '<%= args[:docker_host]%>'
+  @dtr_org        = '<%= args[:docker_org]%>'
+  @container_name = '<%= args[:project_name]%>'
+end
 
 task :default => 'base_docker:build_docker'
 ##########################################################################
@@ -365,10 +367,10 @@ namespace :base_docker do
     end  
   end
 
-  task :upload_container do
+  task :upload_container => :settings do
     puts 'Rake: uploading container'
-    run_command("docker tag -f \#{dtr_host}/\#{dtr_org}/\#{container_name} \#{dtr_host}/\#{dtr_org}/\#{container_name}:latest")
-    run_command("docker push \#{dtr_host}/\#{dtr_org}/\#{container_name}:latest")
+    run_command("docker tag -f \#{@dtr_host}/\#{@dtr_org}/\#{@container_name} \#{@dtr_host}/\#{@dtr_org}/\#{@container_name}:latest")
+    run_command("docker push \#{@dtr_host}/\#{@dtr_org}/\#{@container_name}:latest")
   end
 
   task :build_docker => [:update_puppet, :lint_hiera, :run_packer] do
