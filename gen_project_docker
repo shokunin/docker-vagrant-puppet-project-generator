@@ -120,11 +120,11 @@ Info
 This project was generated with the command:
 
 ```
-./gen_project --project <%= args[:project_name] %>  --docker-host <%= args[:docker_host] %> \\
-              --docker-org <%= args[:docker_org] %> --docker-source-image <%= args[:docker_source_image] %> \\
-              --ruby-version <%= args[:ruby_version] %> --terraform-version <%= args[:terraform_version] %> \\
-              --ruby-gemset <%= args[:ruby_gemset] %>  --vagrant-box <%= args[:vagrant_box] %> \\
-              --vagrant-source-url <%= args[:vagrant_source_url] %>
+./gen_project_docker --project <%= args[:project_name] %>  --docker-host <%= args[:docker_host] %> \\
+                     --docker-org <%= args[:docker_org] %> --docker-source-image <%= args[:docker_source_image] %> \\
+                     --ruby-version <%= args[:ruby_version] %> --terraform-version <%= args[:terraform_version] %> \\
+                     --ruby-gemset <%= args[:ruby_gemset] %>  --vagrant-box <%= args[:vagrant_box] %> \\
+                     --vagrant-source-url <%= args[:vagrant_source_url] %>
 ```
 EOF
 readme=File.open("#{args[:project_name]}/Readme.md", 'w')
